@@ -1,17 +1,13 @@
 import argparse
-import shutil
 import os
 import time
-import torch
-import warnings
-import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.parallel
 import torch.optim
 from spikingjelly.datasets.n_caltech101 import NCaltech101
 from models.VGG_models import *
 import torch.nn.functional as F
-import data_loaders
+import src.data_loaders
 from functions import TET_loss, seed_all, get_logger
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -184,7 +180,7 @@ def test(model, test_loader, device):
 
 if __name__ == '__main__':
     seed_all(args.seed)
-    train_dataset, val_dataset = data_loaders.build_dvscifar('/home/ridger/dataset/cifar-dvs')
+    train_dataset, val_dataset = src.data_loaders.build_dvscifar('/home/ridger/dataset/cifar-dvs')
     train_set_pth = os.path.join(args.dts_cache, f'ncaltech_train_set_{args.T}.pt')
     test_set_pth = os.path.join(args.dts_cache, f'ncaltech_test_set_{args.T}.pt')
     if os.path.exists(train_set_pth) and os.path.exists(test_set_pth):

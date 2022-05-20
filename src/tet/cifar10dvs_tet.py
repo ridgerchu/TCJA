@@ -1,16 +1,8 @@
 import argparse
-import shutil
-import os
 import time
-import torch
-import warnings
-import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-import torch.nn.parallel
-import torch.optim
 from models.VGG_models import *
 import torch.nn.functional as F
-import data_loaders
 from functions import TET_loss, seed_all, get_logger
 from tqdm import tqdm
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")

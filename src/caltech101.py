@@ -4,10 +4,8 @@ import torch.nn.functional as F
 from torch.cuda import amp
 import math
 
-import spikingjelly.datasets
 from spikingjelly.clock_driven import functional, surrogate, layer, neuron
 from spikingjelly.datasets.n_caltech101 import NCaltech101
-from spikingjelly.clock_driven.model import sew_resnet
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from spikingjelly.clock_driven.functional import temporal_efficient_training_cross_entropy as tmt_loss
@@ -19,11 +17,14 @@ from torch.utils.data import DataLoader
 from prefetch_generator import BackgroundGenerator
 import numpy as np
 import transfroms
+from src.layers import VotingLayer
+
 
 class DataLoaderX(DataLoader):
 
     def __iter__(self):
         return BackgroundGenerator(super().__iter__())
+
 
 _seed_ = 2020
 torch.manual_seed(_seed_)  # use torch.manual_seed() to seed the RNG for all devices (both CPU and CUDA)
@@ -31,7 +32,9 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(_seed_)
 
-def split_to_train_test_set(train_ratio: float, origin_dataset: torch.utils.data.Dataset, num_classes: int, random_split: bool = False):
+
+def split_to_train_test_set(train_ratio: float, origin_dataset: torch.utils.data.Dataset, num_classes: int,
+                            random_split: bool = False):
     '''
     :param train_ratio: split the ratio of the origin dataset as the train set
     :type train_ratio: float
@@ -69,230 +72,52 @@ def split_to_train_test_set(train_ratio: float, origin_dataset: torch.utils.data
 
     return torch.utils.data.Subset(origin_dataset, train_idx), torch.utils.data.Subset(origin_dataset, test_idx)
 
-class VotingLayer(nn.Module):
-    def __init__(self, voter_num: int):
-        super().__init__()
-        self.voting = nn.AvgPool1d(voter_num, voter_num)
 
-    def forward(self, x: torch.Tensor):
-        # x.shape = [N, voter_num * C]
-        # ret.shape = [N, C]
-        return self.voting(x.unsqueeze(1)).squeeze(1)
-
-
-class PythonNet(nn.Module):
+class CextNet(nn.Module):
     def __init__(self, channels: int):
         super().__init__()
         conv = []
-        conv.extend(PythonNet.conv3x3(2, 128))
-        conv.append(nn.MaxPool2d(2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2))
+        conv.extend(CextNet.conv3x3(2, 64))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+        conv.extend(CextNet.conv3x3(64, 128))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+        conv.extend(CextNet.conv3x3(128, 256))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+        conv.extend(CextNet.conv3x3(256, 256))
+        conv.append(layer.TCJA(4, 4, 14, 256))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+        conv.extend(CextNet.conv3x3(256, 512))
+        conv.append(layer.TCJA(2, 4, 14, 512))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+
         self.conv = nn.Sequential(*conv)
         self.fc = nn.Sequential(
-            nn.Flatten(),
-            layer.Dropout(0.8),
-            nn.Linear(128*8*8, 512, bias=False),
-            neuron.LIFNode(tau=2., surrogate_function=surrogate.ATan(), detach_reset=False),
-            layer.Dropout(0.5),
-            nn.Linear(512, 100, bias=False),
-            neuron.LIFNode(tau=2.,surrogate_function=surrogate.ATan(), detach_reset=False),
+            nn.Flatten(2),
+            layer.MultiStepDropout(0.5),
+            layer.SeqToANNContainer(nn.Linear(512 * 5 * 7, 1024, bias=False)),
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
+                                    backend='cupy'),
+            layer.MultiStepDropout(0.5),
+            layer.SeqToANNContainer(nn.Linear(1024, 101, bias=False)),
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
         )
         self.vote = VotingLayer(10)
 
     def forward(self, x: torch.Tensor):
         x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-        out = self.conv(x[0])
-        out = self.fc(out)
-        out_spikes = self.vote(out)
-        for t in range(1, x.shape[0]):
-            out_spikes += self.vote(self.fc(self.conv(x[t])))
-        return out_spikes/x.shape[0]
+        out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
+        return out_spikes
 
     @staticmethod
-    def conv3x3_iz(in_channels: int, out_channels):
-        return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.Izhikevich_test(surrogate_function=surrogate.ATan(), detach_reset=False)
-        ]
-    def conv3x3_ad(in_channels: int, out_channels):
-        return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.LIF_with_adaption(a=0.2,b=0.6,vr=-0.05,d=0.5,surrogate_function=surrogate.ATan(), detach_reset=False)
-        ]
     def conv3x3(in_channels: int, out_channels):
         return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.LIFNode(tau=2.,surrogate_function=surrogate.ATan(), detach_reset=False)
+            layer.SeqToANNContainer(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(out_channels),
+            ),
+
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
         ]
-
-try:
-    import cupy
-
-    class CextNet(nn.Module):
-        def __init__(self, channels: int):
-            super().__init__()
-            conv = []
-            conv.extend(CextNet.conv3x3(2, 64))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(CextNet.conv3x3(64, 128))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(CextNet.conv3x3(128, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(CextNet.conv3x3(256, 256))
-            conv.append(layer.TCJA(4, 4, 14, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(CextNet.conv3x3(256, 512))
-            conv.append(layer.TCJA(2, 4, 14, 512))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(512 * 5 * 7, 1024, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy'),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(1024, 101, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
-            )
-            self.vote = VotingLayer(10)
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4) # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return out_spikes
-
-        @staticmethod
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels),
-                ),
-
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3_iz(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(1.,1.,out_channels),
-                neuron.MultiStepIzhikevichNode(tau=2.,tau_w=1/0.175, a=.6, b=0.5,w_rest=0., surrogate_function=surrogate.ATan(), detach_reset=False, backend='torch'),
-            ]
-
-    class VGGNet(nn.Module):
-        def __init__(self, channels: int):
-            super().__init__()
-            conv = []
-            conv.extend(VGGNet.conv3x3(2, 64))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(64, 128))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(128, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(256, 256))
-            conv.append(layer.TCJA(4, 20, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(256, 512))
-            conv.append(layer.TCJA(4, 20, 512))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.MultiStepDropout(0.8),
-                layer.SeqToANNContainer(nn.Linear(512 * 4 * 4, 512, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy'),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(512, 100, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
-            )
-            self.vote = VotingLayer(10)
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return self.vote(out_spikes.mean(0))
-
-        @staticmethod
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(0.707,1,out_channels),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-    class VGGNet_2(nn.Module):
-        def __init__(self):
-            super().__init__()
-            conv = []
-            #conv.append(layer.SeqToANNContainer(nn.AdaptiveAvgPool2d(48)))
-            conv.extend(VGGNet_2.conv3x3(2, 64))
-            conv.extend(VGGNet_2.conv3x3(64, 128))
-
-            conv.append(layer.SeqToANNContainer(nn.AvgPool2d(2, 2)))
-
-            conv.extend(VGGNet_2.conv3x3(128, 256))
-            conv.extend(VGGNet_2.conv3x3(256, 256))
-
-            conv.append(layer.SeqToANNContainer(nn.AvgPool2d(2, 2)))
-
-            conv.extend(VGGNet_2.conv3x3(256, 512))
-            conv.extend(VGGNet_2.conv3x3(512, 512))
-            conv.append(layer.TCJA(4, 4, 14, 512))
-            conv.append(layer.SeqToANNContainer(nn.AvgPool2d(2, 2)))
-
-
-            conv.extend(VGGNet_2.conv3x3(512, 512))
-            conv.extend(VGGNet_2.conv3x3(512, 512))
-            conv.append(layer.TCJA(4, 4, 14, 512))
-            conv.append(layer.SeqToANNContainer(nn.AvgPool2d(4, 4)))
-
-
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.SeqToANNContainer(nn.Linear(512*5*7, 101)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy'),
-            )
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return out_spikes
-
-        @staticmethod
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(out_channels)
-                ),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-
-
-
-
-
-
-except ImportError:
-    print('Cupy is not installed.')
 
 
 def main():
@@ -397,7 +222,6 @@ def main():
 
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
     parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
-    parser.add_argument('-cupy', action='store_true', help='use CUDA neuron and multi-step forward mode')
 
     parser.add_argument('-opt', default='Adam', type=str, help='use which optimizer. SGD or Adam')
     parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
@@ -406,23 +230,15 @@ def main():
     parser.add_argument('-step_size', default=32, type=float, help='step_size for StepLR')
     parser.add_argument('-gamma', default=0.1, type=float, help='gamma for StepLR')
     parser.add_argument('-T_max', default=32, type=int, help='T_max for CosineAnnealingLR')
-    parser.add_argument('-vgg', action='store_true', help='use CUDA neuron and multi-step forward mode')
-    parser.add_argument('-vgg_2', action='store_true', help='use CUDA neuron and multi-step forward mode')
     parser.add_argument('-mixup', action='store_true')
     parser.add_argument('-add_dict', type=str)
     parser.add_argument('-loss', type=str, default='mse')
     parser.add_argument('-dts_cache', type=str, default='./dts_cache')
 
-
     args = parser.parse_args()
     print(args)
 
-    if args.cupy:
-        net = CextNet(channels=args.channels)
-    elif args.vgg:
-        net = VGGNet(channels=args.channels)
-    elif args.vgg_2:
-        net = VGGNet_2()
+    net = CextNet(channels=args.channels)
 
     print(net)
     net.to(args.device)
@@ -460,7 +276,7 @@ def main():
         train_set = torch.load(train_set_pth)
         test_set = torch.load(test_set_pth)
     else:
-        origin_set = NCaltech101(root=args.data_dir, data_type='frame', frames_number=args.T, split_by='number',)
+        origin_set = NCaltech101(root=args.data_dir, data_type='frame', frames_number=args.T, split_by='number', )
 
         train_set, test_set = split_to_train_test_set(0.9, origin_set, 101)
         if not os.path.exists(args.dts_cache):
@@ -486,7 +302,6 @@ def main():
     scaler = None
     if args.amp:
         scaler = amp.GradScaler()
-
 
     out_dir = os.path.join(args.out_dir, f'T_{args.T}_b_{args.b}_c_{args.channels}_{args.opt}_lr_{args.lr}_128')
     if args.lr_scheduler == 'CosALR':

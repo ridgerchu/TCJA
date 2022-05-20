@@ -58,26 +58,12 @@ class CLA(nn.Module):
         return y_seq
 
 
-class TCJA_for_TET(nn.Module):
-    def __init__(self, kernel_size_t: int = 2, kernel_size_c: int = 1, T: int = 8, channel: int = 128):
+class VotingLayer(nn.Module):
+    def __init__(self, voter_num: int):
         super().__init__()
+        self.voting = nn.AvgPool1d(voter_num, voter_num)
 
-        # Excitation
-        self.conv = nn.Sequential(
-            nn.Conv1d(in_channels=T, out_channels=T,
-                      kernel_size=kernel_size_t, padding='same', bias=False),
-        )
-        self.conv_c = nn.Conv1d(in_channels=channel, out_channels=channel,
-                                kernel_size=kernel_size_c, padding='same', bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x_seq: torch.Tensor):
-        x = torch.mean(x_seq, dim=[3, 4])
-        x_c = x.permute(0, 2, 1)
-        conv_t_out = self.conv(x)
-        conv_c_out = self.conv_c(x_c).permute(0, 2, 1)
-        out = self.sigmoid(conv_c_out * conv_t_out)
-        # max_out = self.con(torch.amax(x_seq, dim =[3,4]))
-
-        y_seq = x_seq * out[:, :, :, None, None]
-        return y_seq
+    def forward(self, x: torch.Tensor):
+        # x.shape = [N, voter_num * C]
+        # ret.shape = [N, C]
+        return self.voting(x.unsqueeze(1)).squeeze(1)

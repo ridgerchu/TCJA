@@ -1,0 +1,16 @@
+torch~=1.10.0+cu113
+numpy~=1.19.5
+logging~=0.4.9.6
+argparse~=1.4.0
+tqdm~=4.59.0
+torchvision~=0.11.1+cu113
+torchtoolbox~=0.1.8.2
+scipy~=1.6.2
+matplotlib~=3.3.4
+torchaudio~=0.10.0+cu113
+pathlib~=1.0.1
+requests~=2.26.0
+sklearn~=0.0
+scikit-learn~=0.24.1
+cupy-cuda113~=10.3.1
+prefetch_generator~=1.0.1

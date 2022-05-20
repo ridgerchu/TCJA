@@ -4,8 +4,6 @@ import torch
 from torchvision.transforms import functional as F
 import torchvision
 import math
-import torchtoolbox
-from torchtoolbox.transform import Cutout as cutout
 #torchvision.transforms.RandomAffine(degrees, translate=None, scale=None, shear=None, resample=False, fillcolor=0)
 def dvs_aug(data):
 

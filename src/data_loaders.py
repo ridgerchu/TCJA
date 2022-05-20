@@ -5,11 +5,6 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import CIFAR10, CIFAR100, ImageFolder, MNIST
 import warnings
 import os
-import torchvision
-from os import listdir
-import numpy as np
-import time
-from os.path import isfile, join
 
 warnings.filterwarnings('ignore')
 

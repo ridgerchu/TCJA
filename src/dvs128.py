@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda import amp
 
-import spikingjelly.datasets
 from spikingjelly.clock_driven import functional, surrogate, layer, neuron
 from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
 from torch.utils.data import DataLoader
@@ -11,13 +10,10 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 import os
 import argparse
-import transfroms
-from spikingjelly.clock_driven.monitor import Monitor
 import numpy as np
-from tqdm import tqdm
 
-from spikingjelly.clock_driven.functional import temporal_efficient_training_cross_entropy
-#
+from src.layers import VotingLayer, TCJA
+
 _seed_ = 2020
 torch.manual_seed(_seed_)  # use torch.manual_seed() to seed the RNG for all devices (both CPU and CUDA)
 torch.backends.cudnn.deterministic = True
@@ -25,278 +21,62 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(_seed_)
 
 
-class VotingLayer(nn.Module):
-    def __init__(self, voter_num: int):
-        super().__init__()
-        self.voting = nn.AvgPool1d(voter_num, voter_num)
-
-    def forward(self, x: torch.Tensor):
-        # x.shape = [N, voter_num * C]
-        # ret.shape = [N, C]
-        return self.voting(x.unsqueeze(1)).squeeze(1)
+    # -data_dir /home/ridger/PycharmProjects/snntorch/data/DVSGesture -out_dir /home/ridger/PycharmProjects/spikingjelly_Attention/logs/DVS128/ -opt Adam -device cuda:0 -lr_scheduler CosALR -T_max 1024 -T 20 -epochs 1024 -b 16 -lr 0.001 -cupy -amp -j 20
 
 
-class PythonNet(nn.Module):
+class CextNet(nn.Module):  # TODO: kernel_size parameter passing
     def __init__(self, channels: int):
         super().__init__()
         conv = []
-        conv.extend(PythonNet.conv3x3(2, 128))
-        conv.append(nn.MaxPool2d(2, 2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2, 2))
-        conv.extend(PythonNet.conv3x3_iz(128, 128))
-        conv.append(nn.MaxPool2d(2, 2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2, 2))
-        conv.extend(PythonNet.conv3x3(128, 128))
-        conv.append(nn.MaxPool2d(2, 2))
 
+        conv.extend(CextNet.conv3x3(2, channels))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
 
+        conv.extend(CextNet.conv3x3(channels, channels))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
 
+        conv.extend(CextNet.conv3x3(channels, channels))
+        conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
 
-        #self.random_delete = spikingjelly.datasets.RandomTemporalDelete(16,batch_first=False)
+        for i in range(2):
+            conv.extend(CextNet.conv3x3(channels, channels))  # TODO: kernel size must be equal
+            conv.append(TCJA(4, 4, 20, 128))
+            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
+
         self.conv = nn.Sequential(*conv)
         self.fc = nn.Sequential(
-            nn.Flatten(),
-            layer.Dropout(0.5),
-            nn.Linear(128 * 4 * 4, 512,bias=False),
-            neuron.LIFNode(tau=2.,surrogate_function=surrogate.ATan(), detach_reset=False),
-            layer.Dropout(0.5),
-            nn.Linear(512, 110,bias=False),
-            neuron.LIFNode(tau=2.,surrogate_function=surrogate.ATan(), detach_reset=False),
+            nn.Flatten(2),
+            layer.MultiStepDropout(0.5),
+            layer.SeqToANNContainer(nn.Linear(channels * 4 * 4, channels * 2 * 2, bias=False)),
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
+                                    backend='cupy'),
+            layer.MultiStepDropout(0.5),
+            layer.SeqToANNContainer(nn.Linear(channels * 2 * 2, 110, bias=False)),
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
         )
         self.vote = VotingLayer(10)
 
     def forward(self, x: torch.Tensor):
         x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-        out = self.conv(x[0])
-        out_spikes = self.vote(self.fc(out))
-        for t in range(1, x.shape[0]):
-            out_spikes += self.vote(self.fc(self.conv(x[t])))
-        return out_spikes / x.shape[0]
+        out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
+        return self.vote(out_spikes.mean(0))
 
     @staticmethod
     def conv3x3(in_channels: int, out_channels):
         return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.LIFNode(tau=2.,surrogate_function=surrogate.ATan(), detach_reset=False)
+            layer.SeqToANNContainer(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(out_channels)
+            ),
+            neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
+                                    backend='cupy'),
         ]
-    def conv3x3_ad(in_channels: int, out_channels):
-        return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.LIF_with_adaption(a=0.35,b=0.6,vr=-0.05,d=0.5,surrogate_function=surrogate.ATan(), detach_reset=False,tau=2.)
-        ]
-    def conv3x3_iz(in_channels: int, out_channels):
-        return [
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            neuron.IzhikevichNode(tau=2.,tau_w=1/0.2, a=.6, b=0.6,w_rest=0.,surrogate_function=surrogate.ATan(), detach_reset=False)
-        ]
-
-
-try:
-    import cupy
-
-#-data_dir /home/ridger/PycharmProjects/snntorch/data/DVSGesture -out_dir /home/ridger/PycharmProjects/spikingjelly_Attention/logs/DVS128/ -opt Adam -device cuda:0 -lr_scheduler CosALR -T_max 1024 -T 20 -epochs 1024 -b 16 -lr 0.001 -cupy -amp -j 20
-    class CextNet(nn.Module): #TODO: kernel_size parameter passing
-        def __init__(self, channels: int):
-            super().__init__()
-            conv = []
-
-            conv.extend(CextNet.conv3x3(2, channels))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            
-            conv.extend(CextNet.conv3x3(channels, channels))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            
-            conv.extend(CextNet.conv3x3(channels, channels))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-
-            for i in range(2):
-                conv.extend(CextNet.conv3x3(channels, channels)) #TODO: kernel size must be equal
-                conv.append(layer.TCJA(4, 4, 20, 128))
-                conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-
-
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(channels * 4 * 4, channels * 2 * 2, bias = False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy'),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(channels * 2 * 2, 110, bias = False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
-            )
-            self.vote = VotingLayer(10)
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return self.vote(out_spikes.mean(0))
-
-        @staticmethod
-        def conv3x3_at(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(0.707, 1, out_channels),
-                layer.MultiStepChannelTemporalAttention_4(4),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels)
-                ),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3_iz(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels),
-                ),
-                neuron.MultiStepIzhikevichNode(tau=2.,tau_w=1/0.2, a=.6, b=0.6,w_rest=0., surrogate_function=surrogate.ATan(), detach_reset=True, backend='torch')
-            ]
-
-    class VGGNet(nn.Module):
-        def __init__(self, channels: int):
-            super().__init__()
-            conv = []
-            conv.extend(VGGNet.conv3x3(2, 64))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(64, 128))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(128, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(256, 256))
-            conv.append(layer.MultiStepChannelTemporalAttention_DepthConv(4, 10, 256))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            conv.extend(VGGNet.conv3x3(256, 512))
-            conv.append(layer.MultiStepChannelTemporalAttention_DepthConv(4, 10, 512))
-            conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(512 * 4 * 4, channels * 2 * 2, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy', decay_input=False),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(channels * 2 * 2, 110, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy', decay_input=False)
-            )
-            self.vote = VotingLayer(10)
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return self.vote(out_spikes.mean(0))
-
-        @staticmethod
-        def conv3x3_at(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(0.707, 1, out_channels),
-                layer.MultiStepChannelTemporalAttention_4(4),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels)
-                ),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy', decay_input=False),
-            ]
-
-        def conv3x3_iz(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels),
-                ),
-                neuron.MultiStepIzhikevichNode(tau=2.,tau_w=1/0.2, a=.6, b=0.6,w_rest=0., surrogate_function=surrogate.ATan(), detach_reset=True, backend='torch')
-            ]
-
-    class OneNet(nn.Module):
-        def __init__(self, channels: int):
-            super().__init__()
-            conv = []
-            conv.extend(VGGNet.conv3x3(2, 128))
-            conv.append(layer.MultiStepChannelTemporalAttention_blocks(4,4,20,128))
-            conv.append(layer.SeqToANNContainer(nn.AdaptiveMaxPool2d(8)))
-            conv.extend(VGGNet.conv3x3(128, 128))
-            conv.append(layer.MultiStepChannelTemporalAttention_blocks(4, 4, 20, 128))
-            conv.append(layer.SeqToANNContainer(nn.AdaptiveMaxPool2d(4)))
-            self.conv = nn.Sequential(*conv)
-            self.fc = nn.Sequential(
-                nn.Flatten(2),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(128 * 4 * 4, channels * 2 * 2, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True,
-                                        backend='cupy'),
-                layer.MultiStepDropout(0.5),
-                layer.SeqToANNContainer(nn.Linear(channels * 2 * 2, 110, bias=False)),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy')
-            )
-            self.vote = VotingLayer(10)
-
-        def forward(self, x: torch.Tensor):
-            x = x.permute(1, 0, 2, 3, 4)  # [N, T, 2, H, W] -> [T, N, 2, H, W]
-            out_spikes = self.fc(self.conv(x))  # shape = [T, N, 110]
-            return self.vote(out_spikes.mean(0))
-
-        @staticmethod
-        def conv3x3_at(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(0.707, 1, out_channels),
-                layer.MultiStepChannelTemporalAttention_4(4),
-                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                ),
-                layer.MultiStepThresholdDependentBatchNorm2d(0.707,1,out_channels),                neuron.MultiStepLIFNode(tau=2.0, surrogate_function=surrogate.ATan(), detach_reset=True, backend='cupy'),
-            ]
-
-        def conv3x3_iz(in_channels: int, out_channels):
-            return [
-                layer.SeqToANNContainer(
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_channels),
-                ),
-                neuron.MultiStepIzhikevichNode(tau=2.,tau_w=1/0.2, a=.6, b=0.6,w_rest=0., surrogate_function=surrogate.ATan(), detach_reset=True, backend='torch')
-            ]
-
-
-
-
-
-except ImportError:
-    print('Cupy is not installed.')
 
 
 def main():
-    # python classify_dvsg.py -data_dir /userhome/datasets/DVS128Gesture -out_dir ./logs -amp -opt Adam -device cuda:0 -lr_scheduler CosALR -T_max 64 -cupy -epochs 1024
-    '''
+    # python classify_dvsg.py -data_dir /userhome/datasets/DVS128Gesture -out_dir ./logs -amp -opt Adam -device
+    # cuda:0 -lr_scheduler CosALR -T_max 64 -cupy -epochs 1024
+    """
     * :ref:`API in English <classify_dvsg.__init__-en>`
 
     .. _classify_dvsg.__init__-cn:
@@ -381,7 +161,7 @@ def main():
         python -m spikingjelly.clock_driven.examples.classify_dvsg -data_dir /userhome/datasets/DVS128Gesture -out_dir ./logs -amp -opt Adam -device cuda:0 -lr_scheduler CosALR -T_max 64 -cupy -epochs 1024
 
     See the tutorial :doc:`./clock_driven_en/14_classify_dvsg` for more details.
-    '''
+    """
     parser = argparse.ArgumentParser(description='Classify DVS128 Gesture')
     parser.add_argument('-T', default=16, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
@@ -396,7 +176,6 @@ def main():
 
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
     parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
-    parser.add_argument('-cupy', action='store_true', help='use CUDA neuron and multi-step forward mode')
 
     parser.add_argument('-opt', type=str, help='use which optimizer. SDG or Adam')
     parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
@@ -409,16 +188,12 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    if args.cupy:
-        net = CextNet(channels=args.channels)
-    else:
-        net = PythonNet(channels=args.channels)
+    net = CextNet(channels=args.channels)
     print(net)
 
-
     net.to(args.device)
-    #mon = Monitor(net, args.device, 'torch')
-    #mon.enable()
+    # mon = Monitor(net, args.device, 'torch')
+    # mon.enable()
 
     optimizer = None
     if args.opt == 'SGD':
