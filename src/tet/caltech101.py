@@ -17,6 +17,8 @@ from torch.utils.data import DataLoader
 from prefetch_generator import BackgroundGenerator
 import numpy as np
 
+from src.layers import TCJA, VotingLayer
+
 
 def TET_loss(outputs, labels, criterion, means, lamb):
     T = outputs.size(1)
@@ -57,10 +59,10 @@ class CextNet(nn.Module):
         conv.extend(CextNet.conv3x3(128, 256))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
         conv.extend(CextNet.conv3x3(256, 256))
-        conv.append(layer.TCJA(4, 4, 14, 256))
+        conv.append(TCJA(4, 4, 14, 256))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
         conv.extend(CextNet.conv3x3(256, 512))
-        conv.append(layer.TCJA(4, 4, 14, 512))
+        conv.append(TCJA(4, 4, 14, 512))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
 
         self.conv = nn.Sequential(*conv)
