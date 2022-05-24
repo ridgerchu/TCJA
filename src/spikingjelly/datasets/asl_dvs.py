@@ -61,7 +61,7 @@ class ASLDVS(sjds.NeuromorphicDatasetFolder):
         This function defines how to extract download files.
         '''
         temp_ext_dir = os.path.join(download_root, 'temp_ext')
-        os.mkdir(temp_ext_dir)
+        os.makedirs(temp_ext_dir)
         print(f'Mkdir [{temp_ext_dir}].')
         extract_archive(os.path.join(download_root, 'ICCV2019_DVS_dataset.zip'), temp_ext_dir)
         with ThreadPoolExecutor(max_workers=min(multiprocessing.cpu_count(), 2)) as tpe:
@@ -124,7 +124,7 @@ class ASLDVS(sjds.NeuromorphicDatasetFolder):
             for class_name in os.listdir(extract_root):
                 mat_dir = os.path.join(extract_root, class_name)
                 np_dir = os.path.join(events_np_root, class_name)
-                os.mkdir(np_dir)
+                os.makedirs(np_dir)
                 print(f'Mkdir [{np_dir}].')
                 for bin_file in os.listdir(mat_dir):
                     source_file = os.path.join(mat_dir, bin_file)

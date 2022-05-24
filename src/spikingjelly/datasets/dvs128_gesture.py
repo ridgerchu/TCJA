@@ -162,12 +162,12 @@ class DVS128Gesture(sjds.NeuromorphicDatasetFolder):
         aedat_dir = os.path.join(extract_root, 'DvsGesture')
         train_dir = os.path.join(events_np_root, 'train')
         test_dir = os.path.join(events_np_root, 'test')
-        os.mkdir(train_dir)
-        os.mkdir(test_dir)
+        os.makedirs(train_dir)
+        os.makedirs(test_dir)
         print(f'Mkdir [{train_dir, test_dir}.')
         for label in range(11):
-            os.mkdir(os.path.join(train_dir, str(label)))
-            os.mkdir(os.path.join(test_dir, str(label)))
+            os.makedirs(os.path.join(train_dir, str(label)))
+            os.makedirs(os.path.join(test_dir, str(label)))
         print(f'Mkdir {os.listdir(train_dir)} in [{train_dir}] and {os.listdir(test_dir)} in [{test_dir}].')
 
         with open(os.path.join(aedat_dir, 'trials_to_train.txt')) as trials_to_train_txt, open(

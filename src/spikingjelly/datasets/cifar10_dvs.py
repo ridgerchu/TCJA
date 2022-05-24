@@ -230,7 +230,7 @@ class CIFAR10DVS(sjds.NeuromorphicDatasetFolder):
             for class_name in os.listdir(extract_root):
                 aedat_dir = os.path.join(extract_root, class_name)
                 np_dir = os.path.join(events_np_root, class_name)
-                os.mkdir(np_dir)
+                os.makedirs(np_dir)
                 print(f'Mkdir [{np_dir}].')
                 for bin_file in os.listdir(aedat_dir):
                     source_file = os.path.join(aedat_dir, bin_file)

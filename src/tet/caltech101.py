@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from prefetch_generator import BackgroundGenerator
 import numpy as np
 
-from src.layers import TCJA, VotingLayer
+from layers import TCJA, VotingLayer
 
 
 def TET_loss(outputs, labels, criterion, means, lamb):
@@ -291,7 +291,7 @@ def main():
         out_dir += '_cupy'
 
     if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
+        os.makedirs(out_dir)
         print(f'Mkdir {out_dir}.')
 
     with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:

@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 
 class TensorNormalization(nn.Module):
-    def __init__(self,mean, std):
+    def __init__(self, mean, std):
         super(TensorNormalization, self).__init__()
         if not isinstance(mean, torch.Tensor):
             mean = torch.tensor(mean)
@@ -11,8 +11,10 @@ class TensorNormalization(nn.Module):
             std = torch.tensor(std)
         self.mean = mean
         self.std = std
-    def forward(self,X):
-        return normalizex(X,self.mean,self.std)
+
+    def forward(self, X):
+        return normalizex(X, self.mean, self.std)
+
 
 def normalizex(tensor, mean, std):
     mean = mean[None, :, None, None]
@@ -38,29 +40,31 @@ class SeqToANNContainer(nn.Module):
         y_shape.extend(y_seq.shape[1:])
         return y_seq.view(y_shape)
 
+
 class Layer(nn.Module):
-    def __init__(self,in_plane,out_plane,kernel_size,stride,padding):
+    def __init__(self, in_plane, out_plane, kernel_size, stride, padding):
         super(Layer, self).__init__()
         self.fwd = SeqToANNContainer(
-            nn.Conv2d(in_plane,out_plane,kernel_size,stride,padding),
+            nn.Conv2d(in_plane, out_plane, kernel_size, stride, padding),
             nn.BatchNorm2d(out_plane)
         )
         self.act = LIFSpike()
 
-    def forward(self,x):
+    def forward(self, x):
         x = self.fwd(x)
         x = self.act(x)
         return x
 
+
 class APLayer(nn.Module):
-    def __init__(self,kernel_size):
+    def __init__(self, kernel_size):
         super(APLayer, self).__init__()
         self.fwd = SeqToANNContainer(
             nn.AvgPool2d(kernel_size),
         )
         self.act = LIFSpike()
 
-    def forward(self,x):
+    def forward(self, x):
         x = self.fwd(x)
         x = self.act(x)
         return x

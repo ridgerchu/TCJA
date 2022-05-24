@@ -18,7 +18,7 @@ import numpy as np
 import random
 import transfroms
 
-from src.layers import TCJA, VotingLayer
+from layers import TCJA, VotingLayer
 
 
 class DataLoaderX(DataLoader):
@@ -93,7 +93,7 @@ class VGGNet(nn.Module):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Classify DVS128 Gesture')
+    parser = argparse.ArgumentParser(description='Train CIFAR10-DVS')
     parser.add_argument('-T', default=16, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
     parser.add_argument('-b', default=16, type=int, help='batch size')
@@ -102,7 +102,7 @@ def main():
     parser.add_argument('-j', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('-channels', default=128, type=int, help='channels of Conv2d in SNN')
-    parser.add_argument('-data_dir', type=str, help='root dir of DVS128 Gesture dataset')
+    parser.add_argument('-data_dir', type=str, help='root dir of CIFAR10-DVS Gesture dataset')
     parser.add_argument('-out_dir', type=str, help='root dir for saving logs and checkpoint')
 
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
@@ -186,10 +186,6 @@ def main():
         pin_memory=True)
 
     out_dir = os.path.join(args.out_dir, f'T_{args.T}_b_{args.b}_c_{args.channels}_{args.opt}_lr_{args.lr}_au')
-    if args.vgg:
-        out_dir += f'_vgg_'
-    if args.vgg_2:
-        out_dir += f'_vgg_2_'
     if args.mixup:
         out_dir += 'mixup'
     if args.lr_scheduler == 'CosALR':
@@ -203,11 +199,9 @@ def main():
         out_dir += args.loss
     if args.amp:
         out_dir += '_amp'
-    if args.cupy:
-        out_dir += '_cupy'
 
     if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
+        os.makedirs(out_dir)
         print(f'Mkdir {out_dir}.')
 
     with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:

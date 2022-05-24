@@ -227,7 +227,7 @@ class NAVGestureWalk(sjds.NeuromorphicDatasetFolder):
         This function defines how to extract download files.
         '''
         temp_ext_dir = os.path.join(download_root, 'temp_ext')
-        os.mkdir(temp_ext_dir)
+        os.makedirs(temp_ext_dir)
         print(f'Mkdir [{temp_ext_dir}].')
         extract_archive(os.path.join(download_root, 'navgesture-walk.zip'), temp_ext_dir)
         with ThreadPoolExecutor(max_workers=min(multiprocessing.cpu_count(), 4)) as tpe:
@@ -277,7 +277,7 @@ class NAVGestureWalk(sjds.NeuromorphicDatasetFolder):
         np_dir_dict = {}
         for label in ['le', 'ri', 'up', 'do', 'ho', 'se']:
             np_dir = os.path.join(events_np_root, label)
-            os.mkdir(np_dir)
+            os.makedirs(np_dir)
             print(f'Mkdir [{np_dir}].')
             np_dir_dict[label] = np_dir
 
@@ -317,7 +317,7 @@ class NAVGestureSit(NAVGestureWalk):
         This function defines how to extract download files.
         '''
         temp_ext_dir = os.path.join(download_root, 'temp_ext')
-        os.mkdir(temp_ext_dir)
+        os.makedirs(temp_ext_dir)
         print(f'Mkdir [{temp_ext_dir}].')
         extract_archive(os.path.join(download_root, 'navgesture-sit.zip'), temp_ext_dir)
         with ThreadPoolExecutor(max_workers=min(multiprocessing.cpu_count(), 4)) as tpe:

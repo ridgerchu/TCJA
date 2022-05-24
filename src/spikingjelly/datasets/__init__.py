@@ -453,7 +453,7 @@ def create_same_directory_structure(source_dir: str, target_dir: str) -> None:
         source_sub_dir = os.path.join(source_dir, sub_dir_name)
         if os.path.isdir(source_sub_dir):
             target_sub_dir = os.path.join(target_dir, sub_dir_name)
-            os.mkdir(target_sub_dir)
+            os.makedirs(target_sub_dir)
             print(f'Mkdir [{target_sub_dir}].')
             create_same_directory_structure(source_sub_dir, target_sub_dir)
 
@@ -724,7 +724,7 @@ class NeuromorphicDatasetFolder(DatasetFolder):
                                 f'This dataset can not be downloaded by SpikingJelly, please download [{file_name}] from [{url}] manually and put files at {download_root}.')
 
             else:
-                os.mkdir(download_root)
+                os.makedirs(download_root)
                 print(f'Mkdir [{download_root}] to save downloaded files.')
                 resource_list = self.resource_url_md5()
                 if self.downloadable():
@@ -748,12 +748,12 @@ class NeuromorphicDatasetFolder(DatasetFolder):
                 # shutil.rmtree(extract_root)
                 # print(f'Delete [{extract_root}].')
             else:
-                os.mkdir(extract_root)
+                os.makedirs(extract_root)
                 print(f'Mkdir [{extract_root}].')
                 self.extract_downloaded_files(download_root, extract_root)
 
             # Now let us convert the origin binary files to npz files
-            os.mkdir(events_np_root)
+            os.makedirs(events_np_root)
             print(f'Mkdir [{events_np_root}].')
             print(f'Start to convert the origin data from [{extract_root}] to [{events_np_root}] in np.ndarray format.')
             self.create_events_np_files(extract_root, events_np_root)
@@ -774,7 +774,7 @@ class NeuromorphicDatasetFolder(DatasetFolder):
                 if os.path.exists(frames_np_root):
                     print(f'The directory [{frames_np_root}] already exists.')
                 else:
-                    os.mkdir(frames_np_root)
+                    os.makedirs(frames_np_root)
                     print(f'Mkdir [{frames_np_root}].')
 
                     # create the same directory structure
@@ -806,7 +806,7 @@ class NeuromorphicDatasetFolder(DatasetFolder):
                     print(f'The directory [{frames_np_root}] already exists.')
 
                 else:
-                    os.mkdir(frames_np_root)
+                    os.makedirs(frames_np_root)
                     print(f'Mkdir [{frames_np_root}].')
                     # create the same directory structure
                     create_same_directory_structure(events_np_root, frames_np_root)
@@ -837,7 +837,7 @@ class NeuromorphicDatasetFolder(DatasetFolder):
                 if os.path.exists(frames_np_root):
                     print(f'The directory [{frames_np_root}] already exists.')
                 else:
-                    os.mkdir(frames_np_root)
+                    os.makedirs(frames_np_root)
                     print(f'Mkdir [{frames_np_root}].')
                     # create the same directory structure
                     create_same_directory_structure(events_np_root, frames_np_root)

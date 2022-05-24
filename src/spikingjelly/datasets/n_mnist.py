@@ -118,12 +118,12 @@ class NMNIST(sjds.NeuromorphicDatasetFolder):
             for train_test_dir in ['Train', 'Test']:
                 source_dir = os.path.join(extract_root, train_test_dir)
                 target_dir = os.path.join(events_np_root, train_test_dir.lower())
-                os.mkdir(target_dir)
+                os.makedirs(target_dir)
                 print(f'Mkdir [{target_dir}].')
                 for class_name in os.listdir(source_dir):
                     bin_dir = os.path.join(source_dir, class_name)
                     np_dir = os.path.join(target_dir, class_name)
-                    os.mkdir(np_dir)
+                    os.makedirs(np_dir)
                     print(f'Mkdir [{np_dir}].')
                     for bin_file in os.listdir(bin_dir):
                         source_file = os.path.join(bin_dir, bin_file)

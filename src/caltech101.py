@@ -2,12 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda import amp
-import math
-
 from spikingjelly.datasets import split_to_train_test_set
 from spikingjelly.clock_driven import functional, surrogate, layer, neuron
 from spikingjelly.datasets.n_caltech101 import NCaltech101
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from spikingjelly.clock_driven.functional import temporal_efficient_training_cross_entropy as tmt_loss
 import time
@@ -18,7 +15,7 @@ from torch.utils.data import DataLoader
 from prefetch_generator import BackgroundGenerator
 import numpy as np
 import transfroms
-from src.layers import VotingLayer
+from layers import VotingLayer, TCJA
 
 
 class DataLoaderX(DataLoader):
@@ -45,10 +42,10 @@ class CextNet(nn.Module):
         conv.extend(CextNet.conv3x3(128, 256))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
         conv.extend(CextNet.conv3x3(256, 256))
-        conv.append(layer.TCJA(4, 4, 14, 256))
+        conv.append(TCJA(4, 4, 14, 256))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
         conv.extend(CextNet.conv3x3(256, 512))
-        conv.append(layer.TCJA(2, 4, 14, 512))
+        conv.append(TCJA(2, 4, 14, 512))
         conv.append(layer.SeqToANNContainer(nn.MaxPool2d(2, 2)))
 
         self.conv = nn.Sequential(*conv)
@@ -82,7 +79,7 @@ class CextNet(nn.Module):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Classify DVS128 Gesture')
+    parser = argparse.ArgumentParser(description='Train N-Caltech 101')
     parser.add_argument('-T', default=16, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
     parser.add_argument('-b', default=16, type=int, help='batch size')
@@ -91,7 +88,7 @@ def main():
     parser.add_argument('-j', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('-channels', default=128, type=int, help='channels of Conv2d in SNN')
-    parser.add_argument('-data_dir', type=str, help='root dir of DVS128 Gesture dataset')
+    parser.add_argument('-data_dir', type=str, help='root dir of N-Caltech 101 dataset')
     parser.add_argument('-out_dir', type=str, help='root dir for saving logs and checkpoint')
 
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
@@ -187,11 +184,9 @@ def main():
 
     if args.amp:
         out_dir += '_amp'
-    if args.cupy:
-        out_dir += '_cupy'
 
     if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
+        os.makedirs(out_dir)
         print(f'Mkdir {out_dir}.')
 
     with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:

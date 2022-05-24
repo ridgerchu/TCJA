@@ -179,7 +179,7 @@ class ESImageNet(sjds.NeuromorphicDatasetFolder):
         '''
         t_ckp = time.time()
         train_dir = os.path.join(events_np_root, 'train')
-        os.mkdir(train_dir)
+        os.makedirs(train_dir)
         print(f'Mkdir [{train_dir}].')
         sjds.create_same_directory_structure(os.path.join(extract_root, 'ES-imagenet-0.18/train'), train_dir)
         for class_dir in os.listdir(os.path.join(extract_root, 'ES-imagenet-0.18/train')):
@@ -197,7 +197,7 @@ class ESImageNet(sjds.NeuromorphicDatasetFolder):
         val_fname = np.loadtxt(os.path.join(extract_root, 'ES-imagenet-0.18/vallabel.txt'), delimiter=' ', usecols=(0, ), dtype=str)
         source_dir = os.path.join(extract_root, 'ES-imagenet-0.18/val')
         target_dir = os.path.join(events_np_root, 'test')
-        os.mkdir(target_dir)
+        os.makedirs(target_dir)
         print(f'Mkdir [{target_dir}].')
         sjds.create_same_directory_structure(train_dir, target_dir)
 

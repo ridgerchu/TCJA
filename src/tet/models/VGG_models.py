@@ -1,5 +1,5 @@
 import random
-from src.tet.models.layers import *
+from tet.models.layers import *
 from spikingjelly.clock_driven.layer import MultiStepDropout
 
 

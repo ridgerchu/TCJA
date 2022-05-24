@@ -7,7 +7,7 @@ class TCJA(nn.Module):
         super().__init__()
 
         self.conv = nn.Conv1d(in_channels=T, out_channels=T,
-                              kernel_size=kernel_size_t, padding='same', bias=False),
+                              kernel_size=kernel_size_t, padding='same', bias=False)
         self.conv_c = nn.Conv1d(in_channels=channel, out_channels=channel,
                                 kernel_size=kernel_size_c, padding='same', bias=False)
         self.sigmoid = nn.Sigmoid()
@@ -45,7 +45,7 @@ class CLA(nn.Module):
     def __init__(self, kernel_size_t: int = 2, kernel_size_c: int = 1, T: int = 8, channel: int = 128):
         super().__init__()
         self.conv = nn.Conv1d(in_channels=T, out_channels=T,
-                              kernel_size=kernel_size_t, padding='same', bias=False),
+                              kernel_size=kernel_size_t, padding='same', bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x_seq: torch.Tensor):

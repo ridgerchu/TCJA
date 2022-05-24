@@ -7,21 +7,18 @@ from spikingjelly.clock_driven import functional, surrogate, layer, neuron
 from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import time
 import os
+import time
 import argparse
 import numpy as np
 
-from src.layers import VotingLayer, TCJA
+from layers import VotingLayer, TCJA
 
 _seed_ = 2020
 torch.manual_seed(_seed_)  # use torch.manual_seed() to seed the RNG for all devices (both CPU and CUDA)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(_seed_)
-
-
-    # -data_dir /home/ridger/PycharmProjects/snntorch/data/DVSGesture -out_dir /home/ridger/PycharmProjects/spikingjelly_Attention/logs/DVS128/ -opt Adam -device cuda:0 -lr_scheduler CosALR -T_max 1024 -T 20 -epochs 1024 -b 16 -lr 0.001 -cupy -amp -j 20
 
 
 class CextNet(nn.Module):  # TODO: kernel_size parameter passing
@@ -167,11 +164,9 @@ def main():
 
     if args.amp:
         out_dir += '_amp'
-    if args.cupy:
-        out_dir += '_cupy'
 
     if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
+        os.makedirs(out_dir)
         print(f'Mkdir {out_dir}.')
 
     with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
