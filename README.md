@@ -6,7 +6,7 @@ Temporal Channel Joint Attention
 First clone the repository.
 
 ```shell
-git clone https://github.com/duanyll/TCJA
+git clone https://github.com/ridgerchu/TCJA
 cd TCJA
 pip install -r requirements.txt
 ```
