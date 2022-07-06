@@ -16,32 +16,6 @@ def dvs_aug(data):
     return data
 
 class RandomCompose:
-    """Composes several transforms together. This transform does not support torchscript.
-    Please, see the note below.
-
-    Args:
-        transforms (list of ``Transform`` objects): list of transforms to compose.
-
-    Example:
-        >>> transforms.Compose([
-        >>>     transforms.CenterCrop(10),
-        >>>     transforms.PILToTensor(),
-        >>>     transforms.ConvertImageDtype(torch.float),
-        >>> ])
-
-    .. note::
-        In order to script the transformations, please use ``torch.nn.Sequential`` as below.
-
-        >>> transforms = torch.nn.Sequential(
-        >>>     transforms.CenterCrop(10),
-        >>>     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        >>> )
-        >>> scripted_transforms = torch.jit.script(transforms)
-
-        Make sure to use only scriptable transformations, i.e. that work with ``torch.Tensor``, does not require
-        `lambda` functions or ``PIL.Image``.
-
-    """
 
     def __init__(self, const_transforms, random_transforms, select_num):
         self.random_transforms = random_transforms
@@ -66,11 +40,6 @@ class RandomCompose:
         return format_string
 
 class Flip(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
 
     def __init__(self, p=0.5):
         self.p = p
@@ -82,12 +51,6 @@ class Flip(object):
         return data
 
 class Resize(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
-
     def __init__(self, resolution):
         self.resize = torchvision.transforms.Resize(size=resolution)  # 48 48
         self.imgx = torchvision.transforms.ToPILImage()
@@ -102,11 +65,6 @@ class Resize(object):
 
 
 class Rolling(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
 
     def __init__(self, bias_pos=5, bias_neg=-5):
         self.bias_pos = bias_pos
@@ -119,12 +77,6 @@ class Rolling(object):
         return data
     
 class Rotation(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
-
     def __init__(self, angle=15):
         self.angle = angle
 
@@ -132,16 +84,6 @@ class Rotation(object):
     def __call__(self, data):
         # Define the most occuring variables
         return_data = []
-        '''angle = random.randint(-self.angle, self.angle)
-        data = torch.Tensor(data)
-        new_data = []
-        for i in range(data.shape[0]):
-
-            temp_matrix = data[i, :, :, :]
-            temp_matrix = F.rotate(temp_matrix,angle,fill=0)
-            new_data.append(temp_matrix)
-        new_data = torch.stack(new_data,dim=0)
-        return new_data.numpy()'''
         angle = random.randint(-self.angle, self.angle)
         data = np.ascontiguousarray(data)
         data = torch.Tensor(data)
@@ -149,11 +91,6 @@ class Rotation(object):
         return data.numpy()
 
 class Cutout(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
 
     def __init__(self,max_length = 8):
         self.max_length = max_length
@@ -169,11 +106,6 @@ class Cutout(object):
         return data
 
 class XShear(object):
-    """增加椒盐噪声
-    Args:
-        snr （float）: Signal Noise Rate
-        p (float): 概率值，依概率执行该操作
-    """
 
     def __init__(self, angle=8):
         self.angle = angle
