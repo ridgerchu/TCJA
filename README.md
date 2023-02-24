@@ -84,7 +84,7 @@ CIFAR10DVS/
 ├── frames_number_20_split_by_number
 └── frames_number_20_split_by_number.zip
 ```
-If you find SpikeGPT useful in your work, please cite the following source:
+If you find TCJA module useful in your work, please cite the following source:
 
 ```
 @article{zhu2022tcja,
