@@ -84,3 +84,13 @@ CIFAR10DVS/
 ├── frames_number_20_split_by_number
 └── frames_number_20_split_by_number.zip
 ```
+If you find SpikeGPT useful in your work, please cite the following source:
+
+```
+@article{zhu2022tcja,
+  title={TCJA-SNN: Temporal-Channel Joint Attention for Spiking Neural Networks},
+  author={Zhu, Rui-Jie and Zhao, Qihang and Zhang, Tianjing and Deng, Haoyu and Duan, Yule and Zhang, Malu and Deng, Liang-Jian},
+  journal={arXiv preprint arXiv:2206.10177},
+  year={2022}
+}
+```
