@@ -1,5 +1,8 @@
-# TCJA
-Temporal Channel Joint Attention
+# TCJA-SNN: Temporal-Channel Joint Attention for Spiking Neural Networks
+
+<p align="center" float="center">
+  <img src="https://github.com/ridgerchu/TCJA/blob/main/TCJA.png" width=60%/>
+</p>
 
 ## How to Run
 
